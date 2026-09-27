@@ -34,6 +34,11 @@
 </main>
 <script>
 (async () => {
+  if (new URLSearchParams(location.search).has("loggedout")) {
+    history.replaceState(null, "", "index.html");
+    showMsg(document.getElementById("msg"), "You're logged out.");
+    return;   // just logged out: stay on this page
+  }
   const { data: { session } } = await sb.auth.getSession();
   if (session) location.replace("log.html");
 })();

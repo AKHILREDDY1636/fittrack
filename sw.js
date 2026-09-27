@@ -1,6 +1,6 @@
 // FitTrack service worker
 // Bump VERSION whenever you want every device to drop its old cached copy.
-const VERSION = "fittrack-v1";
+const VERSION = "fittrack-v2";
 const SHELL = [
   "./", "index.html", "log.html", "day.html", "analytics.html", "foods.html", "offline.html",
   "styles.css", "app.js", "config.js", "manifest.webmanifest",

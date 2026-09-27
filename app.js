@@ -17,9 +17,19 @@ async function requireUser() {
   if (!session) { location.replace("index.html"); return new Promise(() => {}); }
   return session.user;
 }
-async function logout() { await sb.auth.signOut(); location.replace("index.html"); }
+async function logout() {
+  const btn = document.getElementById("logoutBtn");
+  if (btn) { btn.disabled = true; btn.textContent = "Logging out…"; }
+  // Sign out on this device only. This works even with a weak connection,
+  // because it doesn't wait for the server.
+  try { await Promise.race([sb.auth.signOut({ scope: "local" }), new Promise(r => setTimeout(r, 3000))]); } catch (e) {}
+  // Belt and braces: remove any saved login left in the browser.
+  try { Object.keys(localStorage).filter(k => k.startsWith("sb-")).forEach(k => localStorage.removeItem(k)); } catch (e) {}
+  location.replace("index.html?loggedout=1");
+}
 sb.auth.onAuthStateChange((event) => {
-  if (event === "SIGNED_OUT" && !location.pathname.endsWith("index.html") && !location.pathname.endsWith("/")) location.replace("index.html");
+  const onLogin = /\/(index\.html)?$/.test(location.pathname);
+  if (event === "SIGNED_OUT" && !onLogin) location.replace("index.html?loggedout=1");
 });
 
 // ---------- dates ----------
