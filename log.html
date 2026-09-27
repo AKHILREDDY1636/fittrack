@@ -34,12 +34,12 @@
     <div id="editorWrap"></div>
   </section>
 
-  <form id="form" autocomplete="off">
+  <form id="form" autocomplete="off" novalidate>
     <section>
       <p class="group-title">Body</p>
       <div class="grid2">
-        <label>Weight (kg)<input type="number" step="0.1" inputmode="decimal" name="weight_kg" placeholder="Morning weight"></label>
-        <label>Waist (cm)<input type="number" step="0.5" inputmode="decimal" name="waist_cm" placeholder="Once a week"></label>
+        <label>Weight (kg)<input type="number" step="any" inputmode="decimal" name="weight_kg" placeholder="Morning weight"></label>
+        <label>Waist (cm)<input type="number" step="any" inputmode="decimal" name="waist_cm" placeholder="Once a week"></label>
       </div>
     </section>
 
@@ -52,28 +52,28 @@
       <div id="manualTotals">
         <p class="muted" style="font-size:.85rem;margin:-4px 0 10px">Add meals above to calculate these automatically, or type totals here.</p>
         <div class="grid2 grid3">
-          <label>Calories (kcal)<input type="number" step="1" inputmode="numeric" name="calories"></label>
-          <label>Protein (g)<input type="number" step="1" inputmode="decimal" name="protein_g"></label>
-          <label>Fiber (g)<input type="number" step="1" inputmode="decimal" name="fiber_g"></label>
-          <label>Carbs (g)<input type="number" step="1" inputmode="decimal" name="carbs_g" placeholder="Optional"></label>
-          <label>Fat (g)<input type="number" step="1" inputmode="decimal" name="fat_g" placeholder="Optional"></label>
+          <label>Calories (kcal)<input type="number" step="any" inputmode="numeric" name="calories"></label>
+          <label>Protein (g)<input type="number" step="any" inputmode="decimal" name="protein_g"></label>
+          <label>Fiber (g)<input type="number" step="any" inputmode="decimal" name="fiber_g"></label>
+          <label>Carbs (g)<input type="number" step="any" inputmode="decimal" name="carbs_g" placeholder="Optional"></label>
+          <label>Fat (g)<input type="number" step="any" inputmode="decimal" name="fat_g" placeholder="Optional"></label>
         </div>
       </div>
-      <label style="margin-top:10px;max-width:50%">Water (L)<input type="number" step="0.25" inputmode="decimal" name="water_l"></label>
+      <label style="margin-top:10px;max-width:50%">Water (L)<input type="number" step="any" inputmode="decimal" name="water_l"></label>
     </section>
 
     <section>
       <p class="group-title">Activity and sleep</p>
       <div class="grid2">
-        <label>Steps<input type="number" step="1" inputmode="numeric" name="steps"></label>
-        <label>Sleep (hours)<input type="number" step="0.25" inputmode="decimal" name="sleep_hours"></label>
+        <label>Steps<input type="number" step="any" inputmode="numeric" name="steps"></label>
+        <label>Sleep (hours)<input type="number" step="any" inputmode="decimal" name="sleep_hours"></label>
         <div><label id="gymLbl">Gym?</label>
           <div class="seg" role="group" aria-labelledby="gymLbl">
             <button type="button" id="gymYes" aria-pressed="false">Yes</button>
             <button type="button" id="gymNo" class="no" aria-pressed="false">No</button>
           </div>
         </div>
-        <label>Gym time (min)<input type="number" step="1" inputmode="numeric" name="gym_minutes" disabled></label>
+        <label>Gym time (min)<input type="number" step="any" inputmode="numeric" name="gym_minutes" disabled></label>
       </div>
       <label style="margin-top:10px">Workout<input type="text" name="workout" maxlength="200" placeholder="e.g. Chest + triceps, 20 min treadmill"></label>
     </section>
@@ -82,10 +82,10 @@
       <details id="scanBox">
         <summary>InBody scan results</summary>
         <div class="grid2">
-          <label>Body fat mass (kg)<input type="number" step="0.1" inputmode="decimal" name="body_fat_kg"></label>
-          <label>Body fat %<input type="number" step="0.1" inputmode="decimal" name="body_fat_pct"></label>
-          <label>Muscle, SMM (kg)<input type="number" step="0.1" inputmode="decimal" name="smm_kg"></label>
-          <label>Visceral fat level<input type="number" step="1" inputmode="numeric" name="visceral"></label>
+          <label>Body fat mass (kg)<input type="number" step="any" inputmode="decimal" name="body_fat_kg"></label>
+          <label>Body fat %<input type="number" step="any" inputmode="decimal" name="body_fat_pct"></label>
+          <label>Muscle, SMM (kg)<input type="number" step="any" inputmode="decimal" name="smm_kg"></label>
+          <label>Visceral fat level<input type="number" step="any" inputmode="numeric" name="visceral"></label>
         </div>
       </details>
     </section>
@@ -271,7 +271,11 @@ async function load() {
   showMsg($("msg"), "Loading…");
   try {
     [existing] = await Promise.all([getLog(date), loadMeals()]);
-    [...NUM, ...TXT].forEach(k => F(k).value = existing && existing[k] != null ? existing[k] : "");
+    const fromMeals = meals.some(m => m.meal_items.length);
+    [...NUM, ...TXT].forEach(k => {
+      // meal-calculated totals are shown in the Food totals box, not in the manual fields
+      F(k).value = existing && existing[k] != null && !(fromMeals && NUTR.includes(k)) ? existing[k] : "";
+    });
     setGym(existing ? existing.gym : null);
     if (existing && existing.gym_minutes != null) F("gym_minutes").value = existing.gym_minutes;
     $("scanBox").open = !!(existing && (existing.body_fat_kg != null || existing.smm_kg != null));

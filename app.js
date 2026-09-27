@@ -292,11 +292,11 @@ function foodFormHTML() {
       <label class="pl">Piece is called<input name="piece_label" maxlength="30" placeholder="e.g. egg, scoop, slice"></label>
     </div>
     <div class="grid2 grid3" style="margin-top:10px">
-      <label>Calories (kcal)<input name="kcal" type="number" step="0.1" min="0" inputmode="decimal" required></label>
-      <label>Protein (g)<input name="protein_g" type="number" step="0.1" min="0" inputmode="decimal" required></label>
-      <label>Carbs (g)<input name="carbs_g" type="number" step="0.1" min="0" inputmode="decimal"></label>
-      <label>Fat (g)<input name="fat_g" type="number" step="0.1" min="0" inputmode="decimal"></label>
-      <label>Fiber (g)<input name="fiber_g" type="number" step="0.1" min="0" inputmode="decimal"></label>
+      <label>Calories (kcal)<input name="kcal" type="number" step="any" min="0" inputmode="decimal" required></label>
+      <label>Protein (g)<input name="protein_g" type="number" step="any" min="0" inputmode="decimal" required></label>
+      <label>Carbs (g)<input name="carbs_g" type="number" step="any" min="0" inputmode="decimal"></label>
+      <label>Fat (g)<input name="fat_g" type="number" step="any" min="0" inputmode="decimal"></label>
+      <label>Fiber (g)<input name="fiber_g" type="number" step="any" min="0" inputmode="decimal"></label>
     </div>
     <details class="off" style="margin-top:12px"><summary>Search packaged foods online</summary>
       <div class="datebar"><input class="offq" placeholder="e.g. yogabar protein oats"><button type="button" class="offgo" aria-label="Search">⌕</button></div>
