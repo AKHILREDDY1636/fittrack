@@ -67,7 +67,8 @@ const ICONS = {
 };
 function mountShell(active, user) {
   const top = document.getElementById("top");
-  if (top) top.innerHTML = `<span class="brand">FitTrack</span><button class="linkbtn" id="logoutBtn" title="${esc(user.email)}">Log out</button>`;
+  if (top) top.innerHTML = `<span class="brand">FitTrack</span><span style="display:flex;gap:14px;align-items:center"><button class="linkbtn installBtn${_installEvt ? "" : " hidden"}" type="button" style="color:var(--good);font-weight:600">Install app</button><button class="linkbtn" id="logoutBtn" title="${esc(user.email)}">Log out</button></span>`;
+  top?.querySelector(".installBtn")?.addEventListener("click", promptInstall);
   document.getElementById("logoutBtn")?.addEventListener("click", logout);
   const nav = document.createElement("nav");
   nav.className = "tabbar";
@@ -348,4 +349,27 @@ function mountFoodForm(container, { initial = {}, onSaved, onCancel } = {}) {
     finally { btn.disabled = false; }
   };
   setTimeout(() => E("name").focus(), 0);
+}
+
+// =====================================================================
+// Installable app (PWA)
+// =====================================================================
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+}
+let _installEvt = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault(); _installEvt = e;
+  document.querySelectorAll(".installBtn").forEach(b => b.classList.remove("hidden"));
+});
+window.addEventListener("appinstalled", () => {
+  _installEvt = null;
+  document.querySelectorAll(".installBtn").forEach(b => b.classList.add("hidden"));
+});
+async function promptInstall() {
+  if (!_installEvt) return;
+  _installEvt.prompt();
+  await _installEvt.userChoice;
+  _installEvt = null;
+  document.querySelectorAll(".installBtn").forEach(b => b.classList.add("hidden"));
 }
