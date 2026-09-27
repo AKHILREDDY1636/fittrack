@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💪</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<title>FitTrack · Log</title>
+</head>
+<body>
+<main>
+  <div class="top" id="top"></div>
+  <h1>Log your day</h1>
+  <p class="sub" id="status">Pick a date and fill in what you have. Blank fields are fine.</p>
+
+  <section>
+    <div class="datebar">
+      <button type="button" id="prev" aria-label="Previous day">‹</button>
+      <input type="date" id="date" required>
+      <button type="button" id="next" aria-label="Next day">›</button>
+    </div>
+  </section>
+
+  <!-- MEALS -->
+  <section>
+    <div class="head"><h2 style="margin:0">Meals</h2><button class="act" type="button" id="addMealBtn">+ Add meal</button></div>
+    <div id="meals" style="margin-top:12px"></div>
+    <div id="editorWrap"></div>
+  </section>
+
+  <form id="form" autocomplete="off">
+    <section>
+      <p class="group-title">Body</p>
+      <div class="grid2">
+        <label>Weight (kg)<input type="number" step="0.1" inputmode="decimal" name="weight_kg" placeholder="Morning weight"></label>
+        <label>Waist (cm)<input type="number" step="0.5" inputmode="decimal" name="waist_cm" placeholder="Once a week"></label>
+      </div>
+    </section>
+
+    <section>
+      <p class="group-title">Food totals</p>
+      <div id="autoTotals" class="hidden">
+        <div class="totals" id="totalsGrid"></div>
+        <p class="muted" style="font-size:.82rem;margin:8px 0 0">Calculated from your meals above.</p>
+      </div>
+      <div id="manualTotals">
+        <p class="muted" style="font-size:.85rem;margin:-4px 0 10px">Add meals above to calculate these automatically, or type totals here.</p>
+        <div class="grid2 grid3">
+          <label>Calories (kcal)<input type="number" step="1" inputmode="numeric" name="calories"></label>
+          <label>Protein (g)<input type="number" step="1" inputmode="decimal" name="protein_g"></label>
+          <label>Fiber (g)<input type="number" step="1" inputmode="decimal" name="fiber_g"></label>
+          <label>Carbs (g)<input type="number" step="1" inputmode="decimal" name="carbs_g" placeholder="Optional"></label>
+          <label>Fat (g)<input type="number" step="1" inputmode="decimal" name="fat_g" placeholder="Optional"></label>
+        </div>
+      </div>
+      <label style="margin-top:10px;max-width:50%">Water (L)<input type="number" step="0.25" inputmode="decimal" name="water_l"></label>
+    </section>
+
+    <section>
+      <p class="group-title">Activity and sleep</p>
+      <div class="grid2">
+        <label>Steps<input type="number" step="1" inputmode="numeric" name="steps"></label>
+        <label>Sleep (hours)<input type="number" step="0.25" inputmode="decimal" name="sleep_hours"></label>
+        <div><label id="gymLbl">Gym?</label>
+          <div class="seg" role="group" aria-labelledby="gymLbl">
+            <button type="button" id="gymYes" aria-pressed="false">Yes</button>
+            <button type="button" id="gymNo" class="no" aria-pressed="false">No</button>
+          </div>
+        </div>
+        <label>Gym time (min)<input type="number" step="1" inputmode="numeric" name="gym_minutes" disabled></label>
+      </div>
+      <label style="margin-top:10px">Workout<input type="text" name="workout" maxlength="200" placeholder="e.g. Chest + triceps, 20 min treadmill"></label>
+    </section>
+
+    <section>
+      <details id="scanBox">
+        <summary>InBody scan results</summary>
+        <div class="grid2">
+          <label>Body fat mass (kg)<input type="number" step="0.1" inputmode="decimal" name="body_fat_kg"></label>
+          <label>Body fat %<input type="number" step="0.1" inputmode="decimal" name="body_fat_pct"></label>
+          <label>Muscle, SMM (kg)<input type="number" step="0.1" inputmode="decimal" name="smm_kg"></label>
+          <label>Visceral fat level<input type="number" step="1" inputmode="numeric" name="visceral"></label>
+        </div>
+      </details>
+    </section>
+
+    <section>
+      <label>Notes<textarea name="notes" maxlength="1000" placeholder="How did the day go?"></textarea></label>
+      <button class="btn" type="submit" id="saveBtn" style="margin-top:14px">Save day</button>
+      <div class="msg" id="msg" role="status"></div>
+    </section>
+  </form>
+</main>
+
+<datalist id="mealNames">
+  <option value="Breakfast"><option value="Mid-morning snack"><option value="Lunch"><option value="Evening snack">
+  <option value="Pre-workout"><option value="Post-workout"><option value="Dinner">
+</datalist>
+
+<script>
+const $ = id => document.getElementById(id);
+const form = $("form");
+const F = k => form.elements.namedItem(k);
+const NUM = ["weight_kg","waist_cm","calories","protein_g","fiber_g","carbs_g","fat_g","water_l","steps","sleep_hours","gym_minutes","body_fat_kg","body_fat_pct","smm_kg","visceral"];
+const NUTR = ["calories","protein_g","fiber_g","carbs_g","fat_g"];
+const TXT = ["workout","notes"];
+const INTS = ["calories","steps","gym_minutes","visceral"];
+let gym = null, existing = null, foods = [], meals = [], editor = null;
+
+F("calories").placeholder = "Target ≤ " + T.calories;
+F("protein_g").placeholder = "Target " + T.protein;
+F("fiber_g").placeholder = "Target " + T.fiber;
+F("steps").placeholder = "Target " + T.steps.toLocaleString();
+F("sleep_hours").placeholder = "Target " + T.sleep;
+
+function setGym(v) {
+  gym = v;
+  $("gymYes").setAttribute("aria-pressed", v === true);
+  $("gymNo").setAttribute("aria-pressed", v === false);
+  F("gym_minutes").disabled = v !== true;
+  if (v !== true) F("gym_minutes").value = "";
+}
+$("gymYes").onclick = () => setGym(gym === true ? null : true);
+$("gymNo").onclick = () => setGym(gym === false ? null : false);
+
+const hhmm = t => String(t || "").slice(0, 5);
+const time12 = t => { const [h, m] = hhmm(t).split(":").map(Number); return ((h % 12) || 12) + ":" + String(m).padStart(2, "0") + (h < 12 ? " am" : " pm"); };
+function guessMealName(t) { const h = Number(hhmm(t).split(":")[0]); return h < 11 ? "Breakfast" : h < 12 ? "Mid-morning snack" : h < 16 ? "Lunch" : h < 19 ? "Evening snack" : "Dinner"; }
+
+// ---------- meals list + totals ----------
+function renderMeals() {
+  $("meals").innerHTML = meals.length ? meals.map((m, i) => {
+    const t = sumItems(m.meal_items);
+    return `<div class="meal">
+      <div class="mh"><div class="mt"><span class="time">${time12(m.meal_time)}</span>${esc(m.name)}</div><div class="mm">${fmt(t.kcal)} kcal · ${fmt(t.protein_g)} g protein</div></div>
+      <ul>${m.meal_items.map(it => `<li><span>${esc(it.line_text || it.food_name)}</span><span class="muted">${fmt(it.kcal)} kcal</span></li>`).join("")}</ul>
+      <div class="acts"><button class="act" data-edit="${i}" type="button">Edit</button><button class="act del" data-del="${i}" type="button">Delete</button></div>
+    </div>`;
+  }).join("") : '<p class="muted" style="margin:0">No meals logged for this day yet.</p>';
+  $("meals").querySelectorAll("[data-edit]").forEach(b => b.onclick = () => openEditor(meals[b.dataset.edit]));
+  $("meals").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const m = meals[b.dataset.del];
+    if (!confirm(`Delete ${m.name} at ${time12(m.meal_time)}?`)) return;
+    try { await deleteMeal(m); await loadMeals(); showMsg($("msg"), "Meal deleted."); } catch (e) { showMsg($("msg"), errText(e), true); }
+  });
+  const items = meals.flatMap(m => m.meal_items), has = items.length > 0;
+  $("autoTotals").classList.toggle("hidden", !has);
+  $("manualTotals").classList.toggle("hidden", has);
+  if (has) {
+    const t = sumItems(items);
+    const cell = (v, u, lbl, target, max) => { const cls = target == null ? "" : (max ? (v <= target ? "good" : "bad") : (v >= target ? "good" : "")); return `<div><b class="${cls}">${fmt(v)}</b><span>${u ? u + " " : ""}${lbl}</span></div>`; };
+    $("totalsGrid").innerHTML = cell(t.kcal, "", "kcal", T.calories, true) + cell(t.protein_g, "g", "protein", T.protein) + cell(t.fiber_g, "g", "fiber", T.fiber) + cell(t.carbs_g, "g", "carbs") + cell(t.fat_g, "g", "fat");
+  }
+}
+async function loadMeals() {
+  meals = await getMeals($("date").value);
+  renderMeals();
+}
+
+// ---------- meal editor ----------
+function openEditor(meal) {
+  const now = new Date(); const rounded = String(now.getHours()).padStart(2, "0") + ":" + String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, "0");
+  editor = meal ? {
+    id: meal.id, time: hhmm(meal.meal_time), name: meal.name,
+    text: meal.meal_items.map(it => it.line_text || (it.qty + (it.unit === "piece" ? " " : it.unit + " ") + it.food_name)).join("\n"),
+    overrides: Object.fromEntries(meal.meal_items.filter(it => it.food_id && it.line_text).map(it => [it.line_text.trim(), it.food_id]))
+  } : { id: null, time: rounded, name: guessMealName(rounded), text: "", overrides: {} };
+  $("addMealBtn").classList.add("hidden");
+  $("editorWrap").innerHTML = `<div class="editor">
+    <h2>${meal ? "Edit meal" : "Add a meal"}</h2>
+    <div class="grid2">
+      <label>Time<input type="time" id="mTime" value="${editor.time}" required></label>
+      <label>Meal<input id="mName" list="mealNames" maxlength="60" value="${esc(editor.name)}" required></label>
+    </div>
+    <label style="margin-top:10px">What you ate, one item per line
+      <textarea id="mText" rows="6" placeholder="200ml milk&#10;55g yogabar dark chocolate protein oats&#10;150g guava&#10;1 full egg&#10;4 egg whites">${esc(editor.text)}</textarea></label>
+    <p class="muted" style="font-size:.8rem;margin:4px 0 0">Write the amount first: 150g, 200ml, or a count like 2 eggs.</p>
+    <div id="mPreview"></div>
+    <div id="mFoodForm"></div>
+    <div class="grid2" style="margin-top:14px">
+      <button class="btn" type="button" id="mSave">Save meal</button>
+      <button class="btn ghost" type="button" id="mCancel">Cancel</button>
+    </div>
+    <div class="msg" id="mMsg" role="status"></div>
+  </div>`;
+  let manualName = !!meal;
+  $("mTime").oninput = () => { if (!manualName) $("mName").value = guessMealName($("mTime").value); };
+  $("mName").oninput = () => { manualName = true; };
+  let deb; $("mText").oninput = () => { clearTimeout(deb); deb = setTimeout(renderPreview, 250); };
+  $("mCancel").onclick = closeEditor;
+  $("mSave").onclick = saveEditor;
+  renderPreview();
+  $("editorWrap").scrollIntoView({ behavior: "smooth", block: "start" });
+  if (!meal) setTimeout(() => $("mText").focus(), 300);
+}
+function closeEditor() { editor = null; $("editorWrap").innerHTML = ""; $("addMealBtn").classList.remove("hidden"); }
+
+function analyse() {
+  const lines = $("mText").value.split("\n").map(parseLine).filter(Boolean);
+  return lines.map(p => {
+    const oid = editor.overrides[p.raw];
+    const food = oid ? foods.find(f => f.id === oid) : matchFood(p.name, foods);
+    if (!food) return { p, food: null, error: "Not in your food library yet." };
+    const c = calcItem(food, p.qty, p.unit);
+    return c.ok ? { p, food, values: c.values } : { p, food, error: c.error };
+  });
+}
+function renderPreview() {
+  if (!editor) return;
+  const rows = analyse();
+  if (!rows.length) { $("mPreview").innerHTML = ""; return; }
+  const opts = sel => `<option value="">Not matched</option>` + foods.map(f => `<option value="${f.id}"${sel === f.id ? " selected" : ""}>${esc(f.name)}</option>`).join("");
+  const t = sumItems(rows.filter(r => r.values).map(r => r.values));
+  $("mPreview").innerHTML = `<div style="overflow-x:auto"><table class="preview">
+    <thead><tr><th>You wrote</th><th>Matched food</th><th class="n">kcal</th><th class="n">Protein</th><th class="n">Fiber</th></tr></thead>
+    <tbody>${rows.map((r, i) => `<tr class="${r.error ? "bad" : ""}">
+      <td>${esc(r.p.raw)}</td>
+      <td><select data-i="${i}" aria-label="Food for ${esc(r.p.raw)}">${opts(r.food && r.food.id)}</select>
+        ${r.error ? `<div class="err">${esc(r.error)}${!r.food ? ` <button class="act" type="button" data-add="${i}">Add “${esc(r.p.name)}”</button>` : ""}</div>` : ""}</td>
+      <td class="n">${r.values ? fmt(r.values.kcal) : "–"}</td><td class="n">${r.values ? fmt(r.values.protein_g, 1) : "–"}</td><td class="n">${r.values ? fmt(r.values.fiber_g, 1) : "–"}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="2">Meal total</td><td class="n">${fmt(t.kcal)}</td><td class="n">${fmt(t.protein_g, 1)} g</td><td class="n">${fmt(t.fiber_g, 1)} g</td></tr></tfoot>
+  </table></div>`;
+  $("mPreview").querySelectorAll("select").forEach(s => s.onchange = () => {
+    const r = rows[s.dataset.i];
+    if (s.value) editor.overrides[r.p.raw] = s.value; else delete editor.overrides[r.p.raw];
+    renderPreview();
+  });
+  $("mPreview").querySelectorAll("[data-add]").forEach(b => b.onclick = () => {
+    const r = rows[b.dataset.add];
+    const unit = r.p.unit === "kg" ? "g" : r.p.unit === "l" ? "ml" : ["g", "ml"].includes(r.p.unit) ? r.p.unit : r.p.unit === "piece" ? "piece" : "g";
+    const nm = r.p.name.charAt(0).toUpperCase() + r.p.name.slice(1);
+    $("mFoodForm").innerHTML = '<div class="inlinefood"><p class="group-title" style="margin-bottom:8px">Add to your food library</p><div id="mFF"></div></div>';
+    mountFoodForm($("mFF"), {
+      initial: { name: nm, unit, piece_label: unit === "piece" ? r.p.name.replace(/s$/, "") : "" },
+      onSaved: saved => { foods.push(saved); foods.sort((a, b) => a.name.localeCompare(b.name)); editor.overrides[r.p.raw] = saved.id; $("mFoodForm").innerHTML = ""; renderPreview(); showMsg($("mMsg"), `Added ${saved.name} to your foods.`); },
+      onCancel: () => { $("mFoodForm").innerHTML = ""; }
+    });
+    $("mFoodForm").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  });
+}
+async function saveEditor() {
+  const rows = analyse();
+  const time = $("mTime").value, name = $("mName").value.trim();
+  if (!time || !name) { showMsg($("mMsg"), "Add a time and a meal name.", true); return; }
+  if (!rows.length) { showMsg($("mMsg"), "Add at least one item, like “150g guava”.", true); return; }
+  const bad = rows.filter(r => r.error);
+  if (bad.length) { showMsg($("mMsg"), `${bad.length} item${bad.length > 1 ? "s need" : " needs"} fixing. Add the missing food or pick a match in the red rows.`, true); return; }
+  const items = rows.map(r => ({ line_text: r.p.raw, food_id: r.food.id, food_name: r.food.name, qty: r.p.qty, unit: r.p.unit, ...r.values }));
+  $("mSave").disabled = true;
+  try {
+    await saveMeal({ id: editor.id, log_date: $("date").value, meal_time: time, name }, items);
+    closeEditor(); await loadMeals();
+    showMsg($("msg"), `Saved ${name}. Day totals updated.`);
+    $("meals").scrollIntoView({ behavior: "smooth", block: "nearest" });
+  } catch (e) { showMsg($("mMsg"), errText(e), true); }
+  finally { const b = $("mSave"); if (b) b.disabled = false; }
+}
+$("addMealBtn").onclick = () => openEditor(null);
+
+// ---------- day ----------
+async function load() {
+  const date = $("date").value;
+  history.replaceState(null, "", "?date=" + date);
+  closeEditor();
+  showMsg($("msg"), "Loading…");
+  try {
+    [existing] = await Promise.all([getLog(date), loadMeals()]);
+    [...NUM, ...TXT].forEach(k => F(k).value = existing && existing[k] != null ? existing[k] : "");
+    setGym(existing ? existing.gym : null);
+    if (existing && existing.gym_minutes != null) F("gym_minutes").value = existing.gym_minutes;
+    $("scanBox").open = !!(existing && (existing.body_fat_kg != null || existing.smm_kg != null));
+    $("status").textContent = existing || meals.length ? "Editing " + niceDate(date) + "." : niceDate(date) + ". Nothing logged yet.";
+    $("saveBtn").textContent = existing ? "Update day" : "Save day";
+    showMsg($("msg"), "");
+  } catch (e) { showMsg($("msg"), errText(e), true); }
+}
+
+form.onsubmit = async (e) => {
+  e.preventDefault();
+  const date = $("date").value;
+  const row = { log_date: date, gym };
+  const fromMeals = meals.some(m => m.meal_items.length);
+  for (const k of NUM) {
+    if (fromMeals && NUTR.includes(k)) continue;   // meal totals are kept by the meals themselves
+    const v = F(k).value.trim();
+    row[k] = v === "" ? null : (INTS.includes(k) ? Math.round(Number(v)) : Number(v));
+  }
+  for (const k of TXT) { const v = F(k).value.trim(); row[k] = v || null; }
+  if (gym !== true) row.gym_minutes = null;
+  const hasAny = Object.entries(row).some(([k, v]) => k !== "log_date" && v != null) || fromMeals;
+  if (!hasAny) { showMsg($("msg"), "Fill in at least one field before saving.", true); return; }
+  $("saveBtn").disabled = true;
+  try {
+    existing = await saveLog(row);
+    $("saveBtn").textContent = "Update day";
+    $("status").textContent = "Editing " + niceDate(date) + ".";
+    showMsg($("msg"), "Saved " + shortDate(date) + ".");
+  } catch (err) { showMsg($("msg"), errText(err), true); }
+  finally { $("saveBtn").disabled = false; }
+};
+
+$("date").onchange = load;
+$("prev").onclick = () => { $("date").value = addDays($("date").value, -1); load(); };
+$("next").onclick = () => { $("date").value = addDays($("date").value, 1); load(); };
+
+(async () => {
+  const user = await requireUser();
+  mountShell("log", user);
+  const q = new URLSearchParams(location.search).get("date");
+  $("date").value = /^\d{4}-\d{2}-\d{2}$/.test(q || "") ? q : todayIso();
+  try { foods = await getFoods(); } catch (e) { foods = []; }
+  load();
+})();
+</script>
+</body>
+</html>

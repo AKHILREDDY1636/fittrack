@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💪</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<title>FitTrack · Day</title>
+</head>
+<body>
+<main>
+  <div class="top" id="top"></div>
+  <h1 id="title">Day view</h1>
+  <p class="sub" id="sub"></p>
+
+  <section>
+    <div class="datebar">
+      <button type="button" id="prev" aria-label="Previous day">‹</button>
+      <input type="date" id="date">
+      <button type="button" id="next" aria-label="Next day">›</button>
+    </div>
+  </section>
+
+  <div id="content"></div>
+  <div class="msg" id="msg" role="status"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+
+function tile(label, value, unit, dp, target, mode) {
+  // mode: "min" = reach target, "max" = stay under target
+  if (value == null) return `<div class="tile"><div class="k">${label}</div><div class="v muted">–</div><div class="d muted">Not logged</div></div>`;
+  let d = "", bar = "";
+  if (target) {
+    const pct = Math.min(100, value / target * 100);
+    const ok = mode === "max" ? value <= target : value >= target;
+    const over = mode === "max" && value > target;
+    d = `<div class="d ${ok ? "good" : "bad"}">${mode === "max" ? (ok ? fmt(target - value) + " under limit" : fmt(value - target) + " over limit") : (ok ? "Target reached" : fmt(target - value, dp) + " to go")}</div>`;
+    bar = `<div class="bar"><span class="${over ? "over" : ""}" style="width:${pct}%"></span></div>`;
+  }
+  return `<div class="tile"><div class="k">${label}</div><div class="v">${fmt(value, dp)}${unit ? " <small>" + unit + "</small>" : ""}</div>${d}${bar}</div>`;
+}
+
+async function load() {
+  const date = $("date").value;
+  history.replaceState(null, "", "?date=" + date);
+  $("title").textContent = niceDate(date, { weekday: "long", day: "numeric", month: "long" });
+  $("sub").textContent = niceDate(date, { year: "numeric" });
+  $("content").innerHTML = "";
+  showMsg($("msg"), "Loading…");
+  try {
+    let [r, prev, meals] = await Promise.all([getLog(date), getLogs(addDays(date, -14), addDays(date, -1)), getMeals(date)]);
+    showMsg($("msg"), "");
+    if (!r && !meals.length) {
+      $("content").innerHTML = `<section><h2>Nothing logged for this day</h2><p class="muted">Add weight, food, steps and sleep for ${shortDate(date)}.</p><a class="btn" style="display:block;text-align:center;text-decoration:none" href="log.html?date=${date}">Log this day</a></section>`;
+      return;
+    }
+    const lastW = [...prev].reverse().find(p => p.weight_kg != null);
+    let wDiff = "";
+    if (r.weight_kg != null && lastW) {
+      const df = r.weight_kg - lastW.weight_kg;
+      wDiff = `<div class="d ${df <= 0 ? "good" : "bad"}">${df > 0 ? "+" : ""}${fmt(df, 1)} kg vs ${shortDate(lastW.log_date)}</div>`;
+    } else if (r.weight_kg != null) {
+      const df = r.weight_kg - CFG.start.weight;
+      wDiff = `<div class="d ${df <= 0 ? "good" : "bad"}">${df > 0 ? "+" : ""}${fmt(df, 1)} kg since start</div>`;
+    }
+    const t12 = t => { const [h, m] = String(t).slice(0, 5).split(":").map(Number); return ((h % 12) || 12) + ":" + String(m).padStart(2, "0") + (h < 12 ? " am" : " pm"); };
+    const mealsHTML = meals.length ? `<section><h2>Meals</h2>${meals.map(m => { const t = sumItems(m.meal_items); return `<div class="meal">
+        <div class="mh"><div class="mt"><span class="time">${t12(m.meal_time)}</span>${esc(m.name)}</div><div class="mm">${fmt(t.kcal)} kcal</div></div>
+        <div style="overflow-x:auto"><table class="preview"><thead><tr><th>Item</th><th class="n">kcal</th><th class="n">Protein</th><th class="n">Carbs</th><th class="n">Fat</th><th class="n">Fiber</th></tr></thead>
+        <tbody>${m.meal_items.map(it => `<tr><td>${esc(it.line_text || it.food_name)}<div class="muted" style="font-size:.78rem">${esc(it.food_name)}</div></td><td class="n">${fmt(it.kcal)}</td><td class="n">${fmt(it.protein_g, 1)}</td><td class="n">${fmt(it.carbs_g, 1)}</td><td class="n">${fmt(it.fat_g, 1)}</td><td class="n">${fmt(it.fiber_g, 1)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr><td>Total</td><td class="n">${fmt(t.kcal)}</td><td class="n">${fmt(t.protein_g, 1)}</td><td class="n">${fmt(t.carbs_g, 1)}</td><td class="n">${fmt(t.fat_g, 1)}</td><td class="n">${fmt(t.fiber_g, 1)}</td></tr></tfoot></table></div></div>`; }).join("")}</section>` : "";
+    r = r || {};
+    const gymTxt = r.gym == null ? '<span class="muted">Not logged</span>' : r.gym ? `Yes${r.gym_minutes ? ", " + r.gym_minutes + " min" : ""}` : "Rest day";
+    const macros = (r.protein_g != null && r.carbs_g != null && r.fat_g != null)
+      ? `<p class="muted" style="margin:12px 0 0;font-size:.88rem">Macro calories: protein ${fmt(r.protein_g * 4)}, carbs ${fmt(r.carbs_g * 4)}, fat ${fmt(r.fat_g * 9)} kcal</p>` : "";
+    const scan = (r.body_fat_kg ?? r.body_fat_pct ?? r.smm_kg ?? r.visceral) != null
+      ? `<section><h2>InBody scan</h2><div class="tiles">${tile("Body fat mass", r.body_fat_kg, "kg", 1)}${tile("Body fat", r.body_fat_pct, "%", 1)}${tile("Muscle (SMM)", r.smm_kg, "kg", 1)}${tile("Visceral level", r.visceral, "", 0, 10, "max")}</div></section>` : "";
+
+    $("content").innerHTML = `
+      <section><h2>Body</h2><div class="tiles">
+        <div class="tile"><div class="k">Weight</div><div class="v">${fmt(r.weight_kg, 1)}${r.weight_kg != null ? " <small>kg</small>" : ""}</div>${wDiff || '<div class="d muted">Not logged</div>'}</div>
+        ${tile("Waist", r.waist_cm, "cm", 1)}
+      </div></section>
+      <section><h2>Food</h2><div class="tiles">
+        ${tile("Calories", r.calories, "kcal", 0, T.calories, "max")}
+        ${tile("Protein", r.protein_g, "g", 0, T.protein, "min")}
+        ${tile("Fiber", r.fiber_g, "g", 0, T.fiber, "min")}
+        ${tile("Carbs", r.carbs_g, "g", 0)}
+        ${tile("Fat", r.fat_g, "g", 0)}
+        ${tile("Water", r.water_l, "L", 1, T.water, "min")}
+      </div>${macros}</section>
+      ${mealsHTML}
+      <section><h2>Activity and sleep</h2><div class="tiles">
+        ${tile("Steps", r.steps, "", 0, T.steps, "min")}
+        ${tile("Sleep", r.sleep_hours, "h", 1, T.sleep, "min")}
+        <div class="tile"><div class="k">Gym</div><div class="v" style="font-size:1.1rem">${gymTxt}</div></div>
+      </div>${r.workout ? `<p style="margin:12px 0 0"><span class="muted">Workout:</span> ${esc(r.workout)}</p>` : ""}</section>
+      ${scan}
+      ${r.notes ? `<section><h2>Notes</h2><p class="notes" style="margin:0">${esc(r.notes)}</p></section>` : ""}
+      <section class="grid2" style="background:none;border:0;padding:0">
+        <a class="btn" style="text-align:center;text-decoration:none" href="log.html?date=${date}">Edit day</a>
+        <button class="btn ghost" id="delBtn" type="button">Delete day</button>
+      </section>`;
+    $("delBtn").onclick = async () => {
+      if (!confirm("Delete everything logged for " + shortDate(date) + "?")) return;
+      try { await deleteLog(date); load(); showMsg($("msg"), "Deleted " + shortDate(date) + "."); }
+      catch (e) { showMsg($("msg"), errText(e), true); }
+    };
+  } catch (e) { showMsg($("msg"), errText(e), true); }
+}
+
+$("date").onchange = load;
+$("prev").onclick = () => { $("date").value = addDays($("date").value, -1); load(); };
+$("next").onclick = () => { $("date").value = addDays($("date").value, 1); load(); };
+
+(async () => {
+  const user = await requireUser();
+  mountShell("day", user);
+  const q = new URLSearchParams(location.search).get("date");
+  $("date").value = /^\d{4}-\d{2}-\d{2}$/.test(q || "") ? q : todayIso();
+  load();
+})();
+</script>
+</body>
+</html>

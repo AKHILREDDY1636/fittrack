@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💪</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<title>FitTrack · Foods</title>
+</head>
+<body>
+<main>
+  <div class="top" id="top"></div>
+  <h1>Your foods</h1>
+  <p class="sub">Save a food once and FitTrack calculates it every time you log it.</p>
+
+  <section>
+    <div class="head"><h2 style="margin:0">Add a food</h2><button class="act" type="button" id="addBtn">+ New food</button></div>
+    <div id="formWrap"></div>
+    <div id="starter" class="hidden" style="margin-top:12px">
+      <p class="muted" style="margin:0 0 10px">Your library is empty. Start with about 20 common foods (milk, eggs, roti, dal, rice, fruits, whey and more). Values are typical averages you can edit.</p>
+      <button class="btn ghost" type="button" id="starterBtn">Add common foods</button>
+    </div>
+  </section>
+
+  <section>
+    <input type="search" id="q" placeholder="Search your foods" aria-label="Search your foods" style="margin:0 0 8px">
+    <div id="list"></div>
+  </section>
+  <div class="msg" id="msg" role="status"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+let foods = [];
+
+function per(f) { return f.unit === "piece" ? "per " + (f.piece_label || "piece") : "per 100 " + f.unit; }
+function render() {
+  const q = $("q").value.trim().toLowerCase();
+  const list = foods.filter(f => !q || f.name.toLowerCase().includes(q) || (f.aliases || "").toLowerCase().includes(q));
+  $("starter").classList.toggle("hidden", foods.length > 0);
+  $("list").innerHTML = list.length ? list.map(f => `<div class="foodrow">
+      <div><div class="fn">${esc(f.name)}</div>
+        <div class="fv">${per(f)}: ${fmt(f.kcal)} kcal · ${fmt(f.protein_g, 1)} g protein · ${fmt(f.carbs_g, 1)} g carbs · ${fmt(f.fat_g, 1)} g fat · ${fmt(f.fiber_g, 1)} g fiber</div>
+        ${f.aliases ? `<div class="fv">Also matches: ${esc(f.aliases)}</div>` : ""}</div>
+      <div style="display:flex;gap:12px;align-items:flex-start"><button class="act" data-edit="${f.id}" type="button">Edit</button><button class="act del" data-del="${f.id}" type="button">Delete</button></div>
+    </div>`).join("") : `<p class="muted" style="margin:0">${foods.length ? "No foods match that search." : "No foods yet."}</p>`;
+  $("list").querySelectorAll("[data-edit]").forEach(b => b.onclick = () => openForm(foods.find(f => f.id === b.dataset.edit)));
+  $("list").querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const f = foods.find(x => x.id === b.dataset.del);
+    if (!confirm(`Delete ${f.name}? Meals you already logged keep their numbers.`)) return;
+    try { await deleteFood(f.id); foods = foods.filter(x => x.id !== f.id); render(); showMsg($("msg"), "Deleted " + f.name + "."); }
+    catch (e) { showMsg($("msg"), errText(e), true); }
+  });
+}
+function openForm(food) {
+  $("addBtn").classList.add("hidden");
+  $("formWrap").innerHTML = '<div style="margin-top:12px" id="ff"></div>';
+  mountFoodForm($("ff"), {
+    initial: food || {},
+    onSaved: saved => {
+      foods = foods.filter(f => f.id !== saved.id).concat(saved).sort((a, b) => a.name.localeCompare(b.name));
+      closeForm(); render(); showMsg($("msg"), "Saved " + saved.name + ".");
+    },
+    onCancel: closeForm
+  });
+  $("formWrap").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+function closeForm() { $("formWrap").innerHTML = ""; $("addBtn").classList.remove("hidden"); }
+
+$("addBtn").onclick = () => openForm(null);
+$("q").oninput = render;
+$("starterBtn").onclick = async () => {
+  $("starterBtn").disabled = true;
+  try {
+    const { data, error } = await sb.from("foods").insert(STARTER_FOODS.map(f => ({ piece_label: null, ...f }))).select();
+    if (error) throw error;
+    foods = foods.concat(data).sort((a, b) => a.name.localeCompare(b.name)); render();
+    showMsg($("msg"), `Added ${data.length} foods. Edit any of them to match the brands you use.`);
+  } catch (e) { showMsg($("msg"), errText(e), true); }
+  finally { $("starterBtn").disabled = false; }
+};
+
+(async () => {
+  const user = await requireUser();
+  mountShell("foods", user);
+  try { foods = await getFoods(); render(); } catch (e) { showMsg($("msg"), errText(e), true); }
+})();
+</script>
+</body>
+</html>

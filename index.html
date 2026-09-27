@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💪</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<title>FitTrack · Log in</title>
+</head>
+<body style="padding-bottom:0">
+<main class="auth">
+  <h1>FitTrack</h1>
+  <p class="sub" id="authSub">Log in to record your day.</p>
+  <section>
+    <form id="authForm">
+      <label>Email<input type="email" id="email" autocomplete="email" required></label>
+      <label style="margin-top:10px">Password<input type="password" id="password" autocomplete="current-password" minlength="6" required></label>
+      <button class="btn" style="margin-top:16px" id="authBtn" type="submit">Log in</button>
+      <div class="msg" id="msg" role="status"></div>
+    </form>
+  </section>
+  <p class="switch"><span id="switchText">New here?</span> <button type="button" id="switchBtn">Create an account</button></p>
+</main>
+<script>
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) location.replace("log.html");
+})();
+let mode = "login";
+const $ = id => document.getElementById(id);
+$("switchBtn").onclick = () => {
+  mode = mode === "login" ? "signup" : "login";
+  $("authBtn").textContent = mode === "login" ? "Log in" : "Create account";
+  $("authSub").textContent = mode === "login" ? "Log in to record your day." : "Create your account. Use a password of 6+ characters.";
+  $("switchText").textContent = mode === "login" ? "New here?" : "Already have an account?";
+  $("switchBtn").textContent = mode === "login" ? "Create an account" : "Log in";
+  $("password").autocomplete = mode === "login" ? "current-password" : "new-password";
+  showMsg($("msg"), "");
+};
+$("authForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const email = $("email").value.trim(), password = $("password").value;
+  $("authBtn").disabled = true;
+  try {
+    if (mode === "login") {
+      const { error } = await sb.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      location.replace("log.html");
+    } else {
+      const { data, error } = await sb.auth.signUp({ email, password, options: { emailRedirectTo: location.href.replace(/[^/]*$/, "index.html") } });
+      if (error) throw error;
+      if (data.session) location.replace("log.html");
+      else showMsg($("msg"), "Account created. Check your email and tap the confirmation link, then log in here.");
+    }
+  } catch (err) { showMsg($("msg"), errText(err), true); }
+  finally { $("authBtn").disabled = false; }
+};
+</script>
+</body>
+</html>

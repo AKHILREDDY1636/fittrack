@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>💪</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<title>FitTrack · Analytics</title>
+</head>
+<body>
+<main>
+  <div class="top" id="top"></div>
+  <h1>Analytics</h1>
+  <p class="sub" id="sub">Your trends over time.</p>
+
+  <section>
+    <div class="pills" id="range" role="group" aria-label="Time range">
+      <button type="button" data-days="7">7 days</button>
+      <button type="button" data-days="30" aria-pressed="true">30 days</button>
+      <button type="button" data-days="90">90 days</button>
+      <button type="button" data-days="0">All time</button>
+    </div>
+  </section>
+
+  <section><h2>Summary</h2><div class="tiles" id="summary"></div></section>
+
+  <section><div class="head"><h2>Weight</h2><span class="muted" style="font-size:.85rem">Thin: daily. Thick: 7-day average.</span></div><div class="chartbox"><canvas id="cWeight"></canvas></div></section>
+  <section><h2>Calories</h2><div class="chartbox"><canvas id="cCal"></canvas></div></section>
+  <section><h2>Protein and fiber</h2><div class="chartbox"><canvas id="cPro"></canvas></div></section>
+  <section><h2>Steps</h2><div class="chartbox"><canvas id="cSteps"></canvas></div></section>
+  <section><h2>Sleep</h2><div class="chartbox"><canvas id="cSleep"></canvas></div></section>
+  <section><h2>Gym minutes</h2><div class="chartbox"><canvas id="cGym"></canvas></div></section>
+  <section id="waistBox" class="hidden"><h2>Waist</h2><div class="chartbox"><canvas id="cWaist"></canvas></div></section>
+  <section id="scanBox" class="hidden"><h2>InBody: fat and muscle</h2><div class="chartbox"><canvas id="cScan"></canvas></div></section>
+
+  <section>
+    <h2>Weekly averages</h2>
+    <div style="overflow-x:auto"><table id="weekly" style="width:100%;border-collapse:collapse;font-size:.88rem"></table></div>
+  </section>
+
+  <section>
+    <h2>Backup</h2>
+    <p class="muted" style="margin-top:0">Download every day you've logged as a spreadsheet file.</p>
+    <button class="btn ghost" id="exportBtn" type="button">Export all data (CSV)</button>
+  </section>
+  <div class="msg" id="msg" role="status"></div>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+let days = 30, charts = {};
+
+Chart.defaults.font.family = '"Outfit", system-ui, sans-serif';
+Chart.defaults.plugins.legend.labels.boxWidth = 12;
+
+function series(rows, from, to) {
+  const map = Object.fromEntries(rows.map(r => [r.log_date, r]));
+  const out = [];
+  for (let d = from; d <= to; d = addDays(d, 1)) out.push({ date: d, r: map[d] || null });
+  return out;
+}
+const pick = (s, k) => s.map(x => x.r && x.r[k] != null ? Number(x.r[k]) : null);
+const flat = (n, v) => Array(n).fill(v);
+
+function makeChart(id, config) {
+  if (charts[id]) charts[id].destroy();
+  const ink = css("--muted"), grid = css("--line");
+  config.options = Object.assign({
+    responsive: true, maintainAspectRatio: false, interaction: { mode: "index", intersect: false },
+    scales: {
+      x: { ticks: { color: ink, maxTicksLimit: 7, maxRotation: 0 }, grid: { display: false } },
+      y: { ticks: { color: ink }, grid: { color: grid } }
+    },
+    plugins: { legend: { labels: { color: ink } } }
+  }, config.options || {});
+  charts[id] = new Chart($(id), config);
+}
+function targetLine(n, v, label) {
+  return { type: "line", label, data: flat(n, v), borderColor: css("--ink"), borderDash: [5, 5], borderWidth: 1.2, pointRadius: 0, fill: false, order: 0 };
+}
+function barColors(vals, limit, base, bad) { return vals.map(v => v != null && limit != null && v > limit ? bad : base); }
+
+function tile(label, value, sub, cls) {
+  return `<div class="tile"><div class="k">${label}</div><div class="v">${value}</div><div class="d ${cls || "muted"}">${sub}</div></div>`;
+}
+
+async function load() {
+  showMsg($("msg"), "Loading…");
+  try {
+    const to = todayIso();
+    let from = days ? addDays(to, -(days - 1)) : null;
+    const rows = await getLogs(from, to);
+    if (!from) from = rows.length ? rows[0].log_date : to;
+    $("sub").textContent = `${shortDate(from)} to ${shortDate(to)}. ${rows.length} day${rows.length === 1 ? "" : "s"} logged.`;
+    const s = series(rows, from, to), n = s.length, labels = s.map(x => shortDate(x.date));
+    showMsg($("msg"), "");
+
+    // ---- summary ----
+    const w = rows.filter(r => r.weight_kg != null);
+    const wChange = w.length >= 2 ? w[w.length - 1].weight_kg - w[0].weight_kg : null;
+    const sinceStart = w.length ? w[w.length - 1].weight_kg - CFG.start.weight : null;
+    const cal = rows.filter(r => r.calories != null), pro = rows.filter(r => r.protein_g != null), fib = rows.filter(r => r.fiber_g != null);
+    const calOk = cal.filter(r => r.calories <= T.calories).length, proOk = pro.filter(r => r.protein_g >= T.protein).length, fibOk = fib.filter(r => r.fiber_g >= T.fiber).length;
+    const gymDays = rows.filter(r => r.gym).length, weeks = Math.max(1, n / 7);
+    const stepsAvg = avg(rows.map(r => r.steps)), sleepAvg = avg(rows.map(r => r.sleep_hours));
+    let streak = 0; { const set = new Set(rows.map(r => r.log_date)); let d = to; if (!set.has(d)) d = addDays(d, -1); while (set.has(d)) { streak++; d = addDays(d, -1); } }
+
+    $("summary").innerHTML =
+      tile("Weight change", wChange == null ? "–" : (wChange > 0 ? "+" : "") + fmt(wChange, 1) + " <small>kg</small>",
+        sinceStart == null ? "Log weight to see trend" : `${sinceStart > 0 ? "+" : ""}${fmt(sinceStart, 1)} kg since ${shortDate(CFG.start.date)}`, wChange == null ? "muted" : wChange <= 0 ? "good" : "bad") +
+      tile("Avg calories", fmt(avg(cal.map(r => r.calories))) + " <small>kcal</small>", cal.length ? `${calOk} of ${cal.length} days under ${fmt(T.calories)}` : "Not logged", cal.length && calOk / cal.length >= .8 ? "good" : "muted") +
+      tile("Avg protein", fmt(avg(pro.map(r => r.protein_g))) + " <small>g</small>", pro.length ? `${proOk} of ${pro.length} days hit ${T.protein} g` : "Not logged", pro.length && proOk / pro.length >= .8 ? "good" : "muted") +
+      tile("Avg fiber", fmt(avg(fib.map(r => r.fiber_g))) + " <small>g</small>", fib.length ? `${fibOk} of ${fib.length} days hit ${T.fiber} g` : "Not logged", fib.length && fibOk / fib.length >= .8 ? "good" : "muted") +
+      tile("Avg steps", fmt(stepsAvg), stepsAvg == null ? "Not logged" : stepsAvg >= T.steps ? "Above target" : fmt(T.steps - stepsAvg) + " below target", stepsAvg == null ? "muted" : stepsAvg >= T.steps ? "good" : "bad") +
+      tile("Avg sleep", fmt(sleepAvg, 1) + " <small>h</small>", sleepAvg == null ? "Not logged" : sleepAvg >= T.sleep ? "On target" : "Below " + T.sleep + " h", sleepAvg == null ? "muted" : sleepAvg >= T.sleep ? "good" : "bad") +
+      tile("Gym days", gymDays + " <small>days</small>", fmt(gymDays / weeks, 1) + " per week (goal " + T.gymDaysPerWeek + ")", gymDays / weeks >= T.gymDaysPerWeek ? "good" : "muted") +
+      tile("Logging streak", streak + " <small>days</small>", streak ? "Keep it going" : "Log today to start one", streak ? "good" : "muted");
+
+    // ---- weight ----
+    const wv = pick(s, "weight_kg");
+    const wavg = s.map((x, i) => { const win = wv.slice(Math.max(0, i - 6), i + 1).filter(v => v != null); return wv[i] == null && !win.length ? null : (win.length ? win.reduce((a, b) => a + b, 0) / win.length : null); });
+    makeChart("cWeight", { type: "line", data: { labels, datasets: [
+      { label: "Daily", data: wv, borderColor: css("--good"), borderWidth: 1.2, pointRadius: n > 40 ? 0 : 2.5, spanGaps: true, borderDash: [], tension: .2 },
+      { label: "7-day avg", data: wavg, borderColor: css("--good"), borderWidth: 3, pointRadius: 0, spanGaps: true, tension: .3 }
+    ] }, options: { plugins: { legend: { display: false } } } });
+
+    // ---- calories ----
+    const cv = pick(s, "calories");
+    makeChart("cCal", { type: "bar", data: { labels, datasets: [
+      { label: "Calories", data: cv, backgroundColor: barColors(cv, T.calories, css("--fat"), css("--bad")), borderRadius: 3, order: 1 },
+      targetLine(n, T.calories, "Limit " + T.calories)
+    ] } });
+
+    // ---- protein & fiber ----
+    makeChart("cPro", { type: "bar", data: { labels, datasets: [
+      { label: "Protein (g)", data: pick(s, "protein_g"), backgroundColor: css("--protein"), borderRadius: 3, order: 1 },
+      { label: "Fiber (g)", data: pick(s, "fiber_g"), backgroundColor: css("--good"), borderRadius: 3, order: 1 },
+      targetLine(n, T.protein, "Protein target"),
+      { ...targetLine(n, T.fiber, "Fiber target"), borderColor: css("--good") }
+    ] } });
+
+    // ---- steps / sleep / gym ----
+    makeChart("cSteps", { type: "bar", data: { labels, datasets: [
+      { label: "Steps", data: pick(s, "steps"), backgroundColor: css("--good"), borderRadius: 3, order: 1 }, targetLine(n, T.steps, "Target")
+    ] }, options: { plugins: { legend: { display: false } } } });
+    makeChart("cSleep", { type: "bar", data: { labels, datasets: [
+      { label: "Sleep (h)", data: pick(s, "sleep_hours"), backgroundColor: css("--sleep"), borderRadius: 3, order: 1 }, targetLine(n, T.sleep, "Target")
+    ] }, options: { plugins: { legend: { display: false } } } });
+    makeChart("cGym", { type: "bar", data: { labels, datasets: [
+      { label: "Gym (min)", data: s.map(x => x.r ? (x.r.gym ? (x.r.gym_minutes || 0) : x.r.gym === false ? 0 : null) : null), backgroundColor: css("--good"), borderRadius: 3 }
+    ] }, options: { plugins: { legend: { display: false } } } });
+
+    // ---- waist & scans (only if logged) ----
+    const waist = pick(s, "waist_cm");
+    $("waistBox").classList.toggle("hidden", !waist.some(v => v != null));
+    if (waist.some(v => v != null)) makeChart("cWaist", { type: "line", data: { labels, datasets: [
+      { label: "Waist (cm)", data: waist, borderColor: css("--fat"), borderWidth: 2.5, spanGaps: true, pointRadius: 3 }
+    ] }, options: { plugins: { legend: { display: false } } } });
+    const bf = pick(s, "body_fat_kg"), smm = pick(s, "smm_kg");
+    const hasScan = bf.some(v => v != null) || smm.some(v => v != null);
+    $("scanBox").classList.toggle("hidden", !hasScan);
+    if (hasScan) makeChart("cScan", { type: "line", data: { labels, datasets: [
+      { label: "Body fat (kg)", data: bf, borderColor: css("--fat"), borderWidth: 2.5, spanGaps: true, pointRadius: 4 },
+      { label: "Muscle SMM (kg)", data: smm, borderColor: css("--good"), borderWidth: 2.5, spanGaps: true, pointRadius: 4 }
+    ] } });
+
+    // ---- weekly table ----
+    const wk = {};
+    rows.forEach(r => { const d = new Date(r.log_date + "T00:00:00"); const mon = addDays(r.log_date, -((d.getDay() + 6) % 7)); (wk[mon] = wk[mon] || []).push(r); });
+    const th = 'style="text-align:left;font-weight:500;color:var(--muted);padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap"';
+    const td = 'style="padding:8px;border-bottom:1px solid var(--line);white-space:nowrap"';
+    const keys = Object.keys(wk).sort().reverse();
+    $("weekly").innerHTML = keys.length ? `<tr><th ${th}>Week of</th><th ${th}>Weight</th><th ${th}>Calories</th><th ${th}>Protein</th><th ${th}>Fiber</th><th ${th}>Steps</th><th ${th}>Sleep</th><th ${th}>Gym</th></tr>` +
+      keys.map(k => { const r = wk[k]; return `<tr><td ${td}>${shortDate(k)}</td><td ${td}>${fmt(avg(r.map(x => x.weight_kg)), 1)}</td><td ${td}>${fmt(avg(r.map(x => x.calories)))}</td><td ${td}>${fmt(avg(r.map(x => x.protein_g)))}</td><td ${td}>${fmt(avg(r.map(x => x.fiber_g)))}</td><td ${td}>${fmt(avg(r.map(x => x.steps)))}</td><td ${td}>${fmt(avg(r.map(x => x.sleep_hours)), 1)}</td><td ${td}>${r.filter(x => x.gym).length} days</td></tr>`; }).join("")
+      : `<tr><td class="muted" style="padding:8px 0">No days logged in this range yet.</td></tr>`;
+  } catch (e) { showMsg($("msg"), errText(e), true); }
+}
+
+$("range").querySelectorAll("button").forEach(b => b.onclick = () => {
+  $("range").querySelectorAll("button").forEach(x => x.setAttribute("aria-pressed", x === b));
+  days = Number(b.dataset.days); load();
+});
+
+$("exportBtn").onclick = async () => {
+  try {
+    const rows = await getLogs(null, null);
+    if (!rows.length) { showMsg($("msg"), "Nothing to export yet."); return; }
+    const cols = Object.keys(rows[0]).filter(k => k !== "user_id" && k !== "id");
+    const q = v => v == null ? "" : /[",\n]/.test(String(v)) ? '"' + String(v).replace(/"/g, '""') + '"' : String(v);
+    const csv = [cols.join(","), ...rows.map(r => cols.map(c => q(r[c])).join(","))].join("\n");
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    a.download = "fittrack-" + todayIso() + ".csv"; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  } catch (e) { showMsg($("msg"), errText(e), true); }
+};
+
+(async () => {
+  const user = await requireUser();
+  mountShell("stats", user);
+  load();
+})();
+</script>
+</body>
+</html>
